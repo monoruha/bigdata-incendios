@@ -78,7 +78,7 @@ def job_meteorologia():
                         "viento_dir": curr.get("wind_direction_10m"),
                         "ultima_actualizacion": curr.get("time"),
                     })
-                time.sleep(1)
+                time.sleep(2)
             except Exception as e:
                 print(f"⚠️ Error en lote {i // tamano_lote + 1}: {e}")
                 errores += 1
