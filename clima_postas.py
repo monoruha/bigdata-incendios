@@ -16,7 +16,12 @@ client = bigquery.Client(project=PROJECT_ID)
 def crear_sesion():
     session = requests.Session()
     session.headers.update({"User-Agent": "ProyectoBigData-BIY7131/1.0"})
-    retries = Retry(total=3, backoff_factor=2, status_forcelist=[500, 502, 503, 504])
+    retries = Retry(
+        total=5,
+        backoff_factor=3,
+        status_forcelist=[429, 500, 502, 503, 504],  # agregamos 429
+        respect_retry_after_header=True  # respeta el header Retry-After si lo manda el servidor
+    )
     session.mount("https://", HTTPAdapter(max_retries=retries))
     return session
 
