@@ -41,7 +41,7 @@ def consultar_clima(lote, session):
         "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m",
         "timezone": "America/Santiago",
     }
-    response = session.get(url, params=params, timeout=30)
+    response = session.get(url, params=params, timeout=60)  # subido de 30 a 60
     response.raise_for_status()
     data = response.json()
     return data if isinstance(data, list) else [data]
@@ -52,7 +52,7 @@ def job_meteorologia():
     print(f"Total de postas a consultar: {len(puntos)}")
 
     datos_clima = []
-    tamano_lote = 200  # ahora que la conexión está estable, subimos el lote
+    tamano_lote = 50  # bajado de 200 a 50 para evitar timeout
     errores = 0
 
     with crear_sesion() as session:
@@ -60,7 +60,7 @@ def job_meteorologia():
             lote = puntos[i:i + tamano_lote]
             try:
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Lote {i // tamano_lote + 1} "
-                      f"({len(lote)} postas)...")
+                      f"de {len(puntos) // tamano_lote + 1} ({len(lote)} postas)...")
                 resultados = consultar_clima(lote, session)
 
                 for punto, clima in zip(lote, resultados):
