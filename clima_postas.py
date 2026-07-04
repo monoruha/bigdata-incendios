@@ -28,16 +28,23 @@ def crear_sesion():
 
 def obtener_puntos_monitoreo():
     query = f"""
-        SELECT nombre, latitud, longitud
+        SELECT 
+            -- nombre representativo del grupo
+            ANY_VALUE(nombre) AS nombre,
+            -- coordenadas redondeadas para agrupar ubicaciones cercanas
+            ROUND(latitud, 2) AS lat_grupo,
+            ROUND(longitud, 2) AS lon_grupo,
+            -- cuántas postas hay en este punto
+            COUNT(*) AS postas_en_zona
         FROM `{PROJECT_ID}.{DATASET_ID}.Establecimientos_Salud`
         WHERE latitud IS NOT NULL AND longitud IS NOT NULL
+        GROUP BY lat_grupo, lon_grupo
     """
     return list(client.query(query).result())
 
-
 def consultar_clima(lote, session):
-    lats = ",".join(str(round(p.latitud, 4)) for p in lote)
-    lons = ",".join(str(round(p.longitud, 4)) for p in lote)
+    lats = ",".join(str(p.lat_grupo) for p in lote)
+    lons = ",".join(str(p.lon_grupo) for p in lote)
 
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
@@ -46,18 +53,17 @@ def consultar_clima(lote, session):
         "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m",
         "timezone": "America/Santiago",
     }
-    response = session.get(url, params=params, timeout=60)  # subido de 30 a 60
+    response = session.get(url, params=params, timeout=60)
     response.raise_for_status()
     data = response.json()
     return data if isinstance(data, list) else [data]
 
-
 def job_meteorologia():
     puntos = obtener_puntos_monitoreo()
-    print(f"Total de postas a consultar: {len(puntos)}")
+    print(f"Ubicaciones únicas a consultar: {len(puntos)}")  # debería ser ~300-400
 
     datos_clima = []
-    tamano_lote = 50  # bajado de 200 a 50 para evitar timeout
+    tamano_lote = 50
     errores = 0
 
     with crear_sesion() as session:
@@ -65,13 +71,16 @@ def job_meteorologia():
             lote = puntos[i:i + tamano_lote]
             try:
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Lote {i // tamano_lote + 1} "
-                      f"de {len(puntos) // tamano_lote + 1} ({len(lote)} postas)...")
+                      f"de {-(-len(puntos) // tamano_lote)} ({len(lote)} ubicaciones)...")
                 resultados = consultar_clima(lote, session)
 
                 for punto, clima in zip(lote, resultados):
                     curr = clima.get("current", {})
                     datos_clima.append({
                         "nombre_establecimiento": punto.nombre,
+                        "lat_grupo": punto.lat_grupo,
+                        "lon_grupo": punto.lon_grupo,
+                        "postas_en_zona": punto.postas_en_zona,
                         "temperatura": curr.get("temperature_2m"),
                         "humedad": curr.get("relative_humidity_2m"),
                         "viento_vel": curr.get("wind_speed_10m"),
@@ -84,17 +93,16 @@ def job_meteorologia():
                 errores += 1
                 continue
 
-    print(f"Consulta terminada. Postas con clima: {len(datos_clima)}, lotes fallidos: {errores}")
+    print(f"Consulta terminada. Zonas con clima: {len(datos_clima)}, lotes fallidos: {errores}")
 
     if datos_clima:
         import pandas as pd
         df = pd.DataFrame(datos_clima)
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
         client.load_table_from_dataframe(df, TABLE_ID, job_config=job_config).result()
-        print(f"✅ BigQuery actualizado con {len(df)} registros.")
+        print(f"✅ BigQuery actualizado con {len(df)} zonas.")
     else:
-        print("❌ No se obtuvo ningún dato de clima, no se actualizó la tabla.")
-
+        print("❌ No se obtuvo ningún dato de clima.")
 
 if __name__ == "__main__":
     job_meteorologia()
